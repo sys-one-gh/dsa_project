@@ -184,29 +184,108 @@ E-COMMERCE INVENTORY & ORDER PROCESSING ENGINE — FULL PROJECT EXPLANATION
     accepts the bracketed default, or the user can type a custom value —
     so the whole program is genuinely interactive, not hardcoded.
 
-4. TEST SUITE (tests/ folder) — 39 unittest cases across 6 files
+4. TEST SUITE (tests/ folder) — what each test file is FOR
 ---------------------------------------------------------------------------
-  - test_models.py     — Factory Method returns correct subtypes; each
-                          product type's tax formula; invalid type raises;
-                          digital products have zero weight.
-  - test_catalogue.py  — full CRUD round-trip; duplicate SKU rejected;
-                          missing SKU raises; updating price re-sorts the
-                          linked list; keyword search; tag search in both
-                          match_all/match_any modes; sorted order invariant.
-  - test_cart.py       — add/merge quantities; partial vs full removal;
-                          quantity updates; undo/redo for all three command
-                          types (Add/Remove/UpdateQuantity); redo stack is
-                          cleared by a new command; undo on empty stack
-                          returns False instead of crashing.
-  - test_discounts.py  — flat discount math + floor at 0; percentage math;
-                          multiple discounts stacked in sequence; BOGO logic
-                          with 2+ items vs a single item (no-op).
-  - test_shipping.py   — domestic vs international cost difference; digital
-                          products contribute zero weight to shipping.
-  - test_orders.py     — orders processed strictly in FIFO order; status
-                          flips to "Fulfilled"; queue is empty after
-                          processing.
-  - Run with: python3 -m unittest discover -s tests -t .
+  - Purpose overall: prove every module works correctly in isolation
+    (unit tests) before trusting main.py to wire them together. Also
+    satisfies the rubric's "minimum 10 test cases" requirement — this
+    suite has 39, spread across one file per module so a grader can see
+    each module was tested on its own merits.
+  - Framework: Python's built-in `unittest` (no extra install needed).
+  - tests/__init__.py — empty file, exists only so `unittest discover`
+    treats tests/ as an importable package. Not a test file itself.
+
+  4.1 test_models.py — tests models.py (Product classes + Factory)
+    - test_creates_physical_product   — factory("Physical") returns a
+                                         PhysicalProduct with weight set.
+    - test_creates_digital_product    — factory("Digital") returns a
+                                         DigitalProduct.
+    - test_creates_subscription_product — factory("Subscription") returns
+                                         a SubscriptionProduct.
+    - test_invalid_type_raises        — an unrecognized type string raises
+                                         ValueError instead of failing silently.
+    - test_physical_product_tax       — confirms 13% tax rate on physical goods.
+    - test_digital_product_tax        — confirms 5% tax rate on digital goods.
+    - test_subscription_product_tax_is_zero — confirms subscriptions are untaxed.
+    - test_digital_product_weight_is_zero — confirms get_weight() defaults
+                                         to 0.0 for non-physical products.
+
+  4.2 test_catalogue.py — tests catalogue.py (Dictionary CRUD + sorted list + search)
+    - test_add_and_get_product        — CREATE then READ returns the same product.
+    - test_duplicate_sku_raises       — adding a SKU that already exists is rejected.
+    - test_update_product_price_resorts_list — UPDATE-ing a price moves the
+                                         product to the correct spot in the
+                                         price-sorted linked list.
+    - test_remove_product             — DELETE removes it from both the dict
+                                         AND the sorted linked list.
+    - test_remove_missing_product_raises — deleting an unknown SKU raises KeyError.
+    - test_search_by_keyword          — substring match on product name works.
+    - test_search_by_tags_match_all   — intersection-style tag search (product
+                                         must have ALL given tags).
+    - test_search_by_tags_match_any   — union-style tag search (product needs
+                                         only ONE matching tag).
+    - test_sorted_list_ascending_order — the sorted linked list is always in
+                                         non-decreasing price order.
+
+  4.3 test_cart.py — tests cart.py (linked-list cart + Command undo/redo)
+    - test_add_item_increases_subtotal — adding a product raises the subtotal
+                                         by the expected amount.
+    - test_add_same_sku_merges_quantity — adding the same SKU twice merges
+                                         into one node instead of duplicating it.
+    - test_remove_partial_quantity    — removing fewer units than are in the
+                                         cart just decrements the quantity.
+    - test_remove_all_deletes_node    — removing all (or more than) the
+                                         quantity deletes the node entirely.
+    - test_update_quantity            — directly setting a new quantity works.
+    - test_undo_redo_add_item         — undo() reverses an AddItemCommand,
+                                         redo() re-applies it, subtotal matches
+                                         at every step.
+    - test_new_command_clears_redo_stack — running a new command after an
+                                         undo wipes the redo stack (you can't
+                                         redo into a future that no longer exists).
+    - test_undo_remove_item_restores_it — undoing a RemoveItemCommand puts the
+                                         exact removed quantity back.
+    - test_undo_update_quantity_restores_previous_value — undoing an
+                                         UpdateQuantityCommand restores the
+                                         quantity that existed before the update.
+    - test_undo_on_empty_stack_returns_false — calling undo() with nothing to
+                                         undo returns False instead of crashing.
+
+  4.4 test_discounts.py — tests discounts.py (Decorator pattern)
+    - test_flat_discount               — a flat $ discount subtracts correctly.
+    - test_flat_discount_does_not_go_negative — a discount larger than the
+                                         total floors at $0, never negative.
+    - test_percentage_discount         — a % discount multiplies correctly.
+    - test_stacked_discounts_apply_in_order — a FlatDiscount wrapped in a
+                                         PercentageDiscount applies both, in
+                                         the correct nested order (flat first,
+                                         then percentage off the reduced total).
+    - test_bogo_removes_cheapest_item  — Buy-One-Get-One-Free subtracts the
+                                         cheapest unit's price when 2+ units exist.
+    - test_bogo_no_effect_with_single_item — BOGO does nothing when there's
+                                         only 1 unit (nothing to give free).
+
+  4.5 test_shipping.py — tests shipping.py (Facade pattern)
+    - test_domestic_shipping_cost      — base rate + weight-based cost comes
+                                         out correct for a domestic order.
+    - test_international_shipping_costs_more — the same cart costs more to
+                                         ship internationally (1.5x multiplier).
+    - test_digital_products_add_no_weight — digital items contribute 0kg, so
+                                         shipping cost is just the base rate.
+
+  4.6 test_orders.py — tests orders.py (FIFO Queue)
+    - test_orders_processed_in_fifo_order — orders come out of the queue in
+                                         the exact order they were submitted.
+    - test_process_orders_marks_fulfilled — processing an order flips its
+                                         status from "Pending" to "Fulfilled".
+    - test_queue_empty_after_processing — the queue is empty once every
+                                         order has been processed.
+
+  4.7 Running the tests
+    - Whole suite:        python3 -m unittest discover -s tests -t .
+    - One file:            python3 -m unittest tests.test_cart
+    - One test method:     python3 -m unittest tests.test_cart.TestCommandUndoRedo.test_undo_redo_add_item
+    - Verbose output:      add -v to any of the commands above.
 
 5. HOW A FULL USER JOURNEY FLOWS THROUGH THE CODE
 ---------------------------------------------------------------------------
