@@ -1,5 +1,20 @@
 # Project 2: E-Commerce Inventory & Order Processing Engine
 
+## MVP & Goals
+
+**What we're trying to achieve:** demonstrate correct, working use of six core data structures and four GoF design patterns inside one coherent system, not six/four disconnected demos. The e-commerce domain (catalogue → cart → checkout → fulfilment) exists to give each structure and pattern a natural, meaningful reason to be there, so the implementation reads as real backend code rather than a textbook exercise.
+
+**MVP — the minimum the project must do to satisfy the brief:**
+- A product catalogue with full CRUD (Create/Read/Update/Delete) plus keyword and tag search.
+- A shopping cart a user can add to, remove from, and update quantities in.
+- Undo/redo on every cart edit.
+- A checkout flow that stacks discounts and computes shipping.
+- An order queue that processes submitted orders in FIFO order.
+- A console entry point (`main.py`) a user can actually run and interact with, so every feature above is reachable and screenshot-able.
+- A test suite covering each module (≥10 cases, per the marking scheme).
+
+Everything beyond that MVP (UML diagram, technical report, git/task-board evidence, oral presentation) is grading scaffolding layered on top — the code itself only needs to satisfy the bullets above to be functionally complete.
+
 ## 2.1 Project Overview
 Build a console-based e-commerce back-end engine (any tool/language) that manages product inventory, shopping carts, order processing, discount computation, and shipping-cost estimation. The system must make meaningful use of lists, stacks, queues, dictionaries, sorted linked lists, and sets, while demonstrating at least four GoF design patterns.
 
