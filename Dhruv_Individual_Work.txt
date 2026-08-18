@@ -1,0 +1,154 @@
+DHRUV — INDIVIDUAL CONTRIBUTION
+E-COMMERCE INVENTORY & ORDER PROCESSING ENGINE (PROJECT 2, ITE 5231)
+===========================================================================
+
+ROLE: Cart, Undo/Redo & Discounts
+FILES OWNED: cart.py, discounts.py
+TESTS OWNED: tests/test_cart.py (10 cases), tests/test_discounts.py (6 cases) — 16 total
+DATA STRUCTURES OWNED: Custom Linked List, Stack (x2)
+DESIGN PATTERNS OWNED: Command, Decorator
+PIPELINE STAGE: Cart & Checkout pricing (stage 2-3 of catalogue -> cart -> checkout -> fulfilment)
+
+---------------------------------------------------------------------------
+1. WHAT THIS SLICE OF THE PROJECT DOES
+---------------------------------------------------------------------------
+This is the part of the system that owns everything that happens to a
+customer's cart before checkout: adding/removing/updating items, letting the
+customer undo or redo any of those edits, and stacking discounts on top of
+the cart's subtotal once the customer is ready to check out.
+
+---------------------------------------------------------------------------
+2. cart.py — CUSTOM LINKED LIST + COMMAND PATTERN
+---------------------------------------------------------------------------
+
+2.1 CartItem / ShoppingCartList (Custom Linked List)
+  - CartItem is a node holding (product, quantity, next-pointer).
+  - ShoppingCartList is a hand-written singly linked list — not a Python
+    list — because cart edits are naturally pointer operations:
+      * add(product, qty): if the SKU already exists in the list, its
+        quantity is simply bumped; otherwise a new node is inserted at the
+        head, an O(1) operation.
+      * remove(sku, qty=None): walks the list with a prev/current pair so
+        it can unlink a node safely. Removes `qty` units, or the whole node
+        if qty is None or >= the current quantity.
+      * update_quantity(sku, new_qty): sets the quantity directly; if the
+        new quantity drops to 0 or below, the node is removed entirely.
+      * get_subtotal(): traverses the whole list once, summing
+        price * quantity for every node.
+      * to_list(): flattens the linked list into a Python List[CartItem]
+        purely for display in main.py.
+
+2.2 ICartCommand + concrete commands (Command Pattern)
+  - ICartCommand is an abstract base with two methods: execute() and
+    undo(). This is the core contract of the Command pattern — every cart
+    edit becomes an object instead of a direct method call, so it can be
+    replayed or reversed later.
+  - AddItemCommand: execute() adds a quantity to the cart; undo() removes
+    that exact quantity back out.
+  - RemoveItemCommand: execute() removes a quantity (or the whole item)
+    from the cart, but first SAVES exactly what it actually removed
+    (product + amount). This matters because if the customer asked to
+    remove more than was in the cart, undo() still needs to restore the
+    precise amount that was really taken out, not the amount requested.
+  - UpdateQuantityCommand: execute() sets a new quantity but first records
+    the OLD quantity, so undo() can restore exactly what existed before.
+
+2.3 CartManager (Two Stacks)
+  - undo_stack and redo_stack are plain Python lists used strictly as
+    stacks: append() = push, pop() = pop. This is the project's "two
+    Stacks" requirement, and a stack is the correct structure here because
+    undo/redo is inherently LIFO — the most recent edit is always the
+    first one to be undone.
+  - execute_command(cmd): runs cmd.execute(), pushes cmd onto undo_stack,
+    and CLEARS redo_stack. Clearing redo_stack is the standard undo/redo
+    rule — once the customer makes a new edit, the old "redo future" is no
+    longer valid and must be discarded.
+  - undo(): pops the most recent command off undo_stack, calls its
+    undo(), and pushes that same command onto redo_stack. Returns False
+    if there is nothing to undo, instead of crashing.
+  - redo(): pops a command off redo_stack, re-runs its execute(), and
+    pushes it back onto undo_stack. Returns False if there is nothing to
+    redo.
+
+---------------------------------------------------------------------------
+3. discounts.py — DECORATOR PATTERN
+---------------------------------------------------------------------------
+  - IOrder is a one-method interface: get_total().
+  - BaseOrder wraps the raw cart subtotal — this is the innermost,
+    undecorated order; get_total() just returns that subtotal untouched.
+  - DiscountDecorator (abstract) wraps ANOTHER IOrder (self.order). Because
+    every decorator IS an IOrder and also HOLDS an IOrder, decorators can
+    be nested inside each other to any depth.
+  - FlatDiscount(order, amount): subtracts a flat dollar amount from
+    whatever total the wrapped order produces. Floors at 0 so a total
+    never goes negative.
+  - PercentageDiscount(order, percentage): multiplies the wrapped total by
+    (1 - percentage). E.g. percentage=0.10 takes 10% off whatever total it
+    receives from the layer inside it.
+  - BuyOneGetOneFree(order, item_prices): given the individual unit prices
+    in the cart, subtracts the price of the single CHEAPEST unit (i.e.
+    that unit becomes "free") — but only if there are 2 or more units in
+    total; with just 1 unit there is nothing to give away free.
+  - Because each decorator only knows about the layer directly inside it,
+    discounts can be combined in ANY order with no giant if/else chain.
+    Example used in testing:
+      PercentageDiscount(FlatDiscount(BaseOrder(1040), 50), 0.10)
+      -> (1040 - 50) * 0.90 = 891.00
+    Flat discount is applied first (innermost), then percentage is taken
+    off the already-reduced total (outermost) — proving the layers nest
+    correctly rather than all firing on the original subtotal.
+
+---------------------------------------------------------------------------
+4. TEST COVERAGE (tests/test_cart.py + tests/test_discounts.py)
+---------------------------------------------------------------------------
+test_cart.py (10 cases):
+  - test_add_item_increases_subtotal
+  - test_add_same_sku_merges_quantity
+  - test_remove_partial_quantity
+  - test_remove_all_deletes_node
+  - test_update_quantity
+  - test_undo_redo_add_item
+  - test_new_command_clears_redo_stack
+  - test_undo_remove_item_restores_it
+  - test_undo_update_quantity_restores_previous_value
+  - test_undo_on_empty_stack_returns_false
+
+test_discounts.py (6 cases):
+  - test_flat_discount
+  - test_flat_discount_does_not_go_negative
+  - test_percentage_discount
+  - test_stacked_discounts_apply_in_order
+  - test_bogo_removes_cheapest_item
+  - test_bogo_no_effect_with_single_item
+
+Run just this slice:
+  python3 -m unittest tests.test_cart tests.test_discounts -v
+
+---------------------------------------------------------------------------
+5. HOW THIS CONNECTS TO THE REST OF THE SYSTEM
+---------------------------------------------------------------------------
+  - main.py menu options 7-9 (Add/Remove/Update cart) call
+    CartManager.execute_command() with the three commands above.
+  - Menu options 11-12 (Undo/Redo) call CartManager.undo()/redo() directly.
+  - At checkout (menu option 13), main.py wraps ShoppingCartList's
+    get_subtotal() in a BaseOrder, then optionally layers FlatDiscount /
+    PercentageDiscount / BuyOneGetOneFree on top before handing the final
+    total off to Sahil's ShippingFacade and OrderProcessor.
+  - Products themselves (used to build cart items) come from Parth's
+    Catalogue / ProductFactory.
+
+---------------------------------------------------------------------------
+6. Q&A TALKING POINTS
+---------------------------------------------------------------------------
+  - Why a custom linked list instead of a Python list for the cart?
+    -> Add/remove are pointer operations; no need to shift elements the
+       way list.remove() would.
+  - Why two stacks instead of one?
+    -> One stack alone can undo, but redo needs a separate place to hold
+       commands that were undone, so they can be replayed without being
+       re-derived.
+  - Why Decorator instead of an if/else block for discounts?
+    -> Any combination of discounts can be composed at runtime without
+       touching existing discount code — new discount types can be added
+       later without modifying BaseOrder or other decorators (Open/Closed
+       Principle).
