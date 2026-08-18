@@ -1,6 +1,6 @@
 # Project 2: E-Commerce Inventory & Order Processing Engine
 
-## MVP & Goals
+## MVP & Goals  
 
 **What we're trying to achieve:** demonstrate correct, working use of six core data structures and four GoF design patterns inside one coherent system, not six/four disconnected demos. The e-commerce domain (catalogue → cart → checkout → fulfilment) exists to give each structure and pattern a natural, meaningful reason to be there, so the implementation reads as real backend code rather than a textbook exercise.
 
