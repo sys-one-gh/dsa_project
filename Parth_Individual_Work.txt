@@ -1,0 +1,152 @@
+PARTH — INDIVIDUAL CONTRIBUTION
+E-COMMERCE INVENTORY & ORDER PROCESSING ENGINE (PROJECT 2, ITE 5231)
+===========================================================================
+
+ROLE: Product Catalogue & Product Hierarchy
+FILES OWNED: models.py, catalogue.py
+TESTS OWNED: tests/test_models.py (8 cases), tests/test_catalogue.py (9 cases) — 17 total
+DATA STRUCTURES OWNED: Dictionary, HashSet (set), Sorted Linked List
+DESIGN PATTERNS OWNED: Factory Method
+PIPELINE STAGE: Catalogue (stage 1 of catalogue -> cart -> checkout -> fulfilment)
+
+---------------------------------------------------------------------------
+1. WHAT THIS SLICE OF THE PROJECT DOES
+---------------------------------------------------------------------------
+This is the part of the system that defines what a "product" is and owns
+the entire inventory: creating products of the correct type, storing them
+for instant lookup, keeping them browsable in price order, and searching
+them by keyword or tag. Everything downstream (cart, discounts, shipping,
+orders) operates on Product objects that originate here.
+
+---------------------------------------------------------------------------
+2. models.py — PRODUCT HIERARCHY + FACTORY METHOD
+---------------------------------------------------------------------------
+  - Product (ABC): the base class, holding sku, name, price, and tags (a
+    Set[str]). calculate_tax() is declared abstract — every subclass MUST
+    supply its own tax rule, so it's impossible to instantiate a product
+    that "forgot" to define tax. get_weight() defaults to 0.0 on the base
+    class and is only overridden where weight actually matters.
+  - PhysicalProduct: adds a weight attribute (used later by Sahil's
+    ShippingFacade); calculate_tax() returns 13% of price.
+  - DigitalProduct: no weight attribute at all; calculate_tax() returns 5%
+    of price — lower than physical goods.
+  - SubscriptionProduct: no weight; calculate_tax() returns 0.0 —
+    subscriptions are untaxed in this model.
+  - ProductFactory.create_product(prod_type, sku, name, price, tags,
+    weight): the Factory Method itself.
+      * Reads a plain string ("Physical" / "Digital" / "Subscription",
+        case-insensitive) and returns the matching subclass instance.
+      * Raises ValueError on any unrecognized type string instead of
+        failing silently or returning None.
+      * This is the whole point of Factory Method: callers (main.py, the
+        cart, the test suite) never call PhysicalProduct(...) or
+        DigitalProduct(...) directly — they just ask the factory for a
+        type by name, so adding a new product type later only means
+        touching this one method, not every call site in the codebase.
+
+---------------------------------------------------------------------------
+3. catalogue.py — DICTIONARY + HASHSET + SORTED LINKED LIST
+---------------------------------------------------------------------------
+  - SortedNode / SortedLinkedList:
+    - A singly linked list kept sorted ascending by product.price at all
+      times — never sorted on read.
+    - insert(product): walks the list once to find the correct
+      position — O(n) per insert, but browsing (menu option 4) is always
+      already sorted, so there's no repeated sort cost every time someone
+      browses.
+    - remove(sku): unlinks a node by SKU, used whenever a product is
+      deleted or its price changes and it needs to move position.
+    - to_list(): flattens the linked list into a plain Python list purely
+      for display in main.py.
+  - Catalogue class — the CRUD store:
+    - self.products: Dict[str, Product] keyed by SKU — the project's
+      "Dictionary" requirement, giving O(1) average lookup by SKU instead
+      of scanning a list every time a product is needed.
+    - self.sorted_list: SortedLinkedList, kept in sync with the dict on
+      every add/update/remove.
+    - add_product(product) = CREATE. Raises ValueError on a duplicate SKU
+      so inventory never silently overwrites an existing entry.
+    - get_product(sku) = READ. Returns None (not an exception) when the
+      SKU isn't found, since a "not found" lookup is a normal case, not an
+      error case.
+    - update_product(sku, **fields) = UPDATE. Only overwrites fields that
+      were actually passed (None values are skipped), so a partial update
+      never clobbers untouched fields. If price changed, it removes and
+      re-inserts the node in sorted_list so ordering stays correct instead
+      of going stale.
+    - remove_product(sku) = DELETE. Removes from both self.products AND
+      sorted_list so the two stay consistent. Raises KeyError if the SKU
+      doesn't exist.
+    - search_by_keyword(keyword): case-insensitive substring match against
+      product name, returning a List[Product].
+    - search_by_tags(tags, match_all): tags is a Python set, and this
+      method is the project's explicit "set operations" requirement:
+        * match_all=True  -> tags.issubset(p.tags) — INTERSECTION-style
+          logic; the product must carry EVERY requested tag.
+        * match_all=False -> tags & p.tags — the product only needs to
+          share AT LEAST ONE tag (ANY-match).
+    - all_tags(): unions every product's tag set into one master set with
+      |= — a direct, explicit demonstration of the UNION set operation
+      across the whole catalogue.
+
+---------------------------------------------------------------------------
+4. TEST COVERAGE (tests/test_models.py + tests/test_catalogue.py)
+---------------------------------------------------------------------------
+test_models.py (8 cases):
+  - test_creates_physical_product
+  - test_creates_digital_product
+  - test_creates_subscription_product
+  - test_invalid_type_raises
+  - test_physical_product_tax
+  - test_digital_product_tax
+  - test_subscription_product_tax_is_zero
+  - test_digital_product_weight_is_zero
+
+test_catalogue.py (9 cases):
+  - test_add_and_get_product
+  - test_duplicate_sku_raises
+  - test_update_product_price_resorts_list
+  - test_remove_product
+  - test_remove_missing_product_raises
+  - test_search_by_keyword
+  - test_search_by_tags_match_all
+  - test_search_by_tags_match_any
+  - test_sorted_list_ascending_order
+
+Run just this slice:
+  python3 -m unittest tests.test_models tests.test_catalogue -v
+
+---------------------------------------------------------------------------
+5. HOW THIS CONNECTS TO THE REST OF THE SYSTEM
+---------------------------------------------------------------------------
+  - main.py menu options 1-3 (Add/Update/Delete Product) call
+    ProductFactory.create_product() and Catalogue's CRUD methods directly.
+  - Menu option 4 (Browse by price) reads Catalogue.sorted_list.to_list().
+  - Menu options 5-6 (keyword/tag search) call
+    Catalogue.search_by_keyword() / search_by_tags().
+  - Products created here are the objects Dhruv's ShoppingCartList stores
+    and prices; PhysicalProduct.weight feeds directly into Sahil's
+    ShippingFacade._calculate_weight().
+
+---------------------------------------------------------------------------
+6. Q&A TALKING POINTS
+---------------------------------------------------------------------------
+  - Why Factory Method instead of calling PhysicalProduct()/DigitalProduct()
+    directly from main.py?
+    -> Callers just say "give me a Physical product"; the decision of
+       which class to instantiate is centralized in one place, so adding a
+       new product type later doesn't mean hunting down every constructor
+       call across the codebase.
+  - Why a Dictionary for the catalogue instead of a plain list of products?
+    -> SKU lookups (get/update/remove) are by far the most frequent
+       operation, and a dict gives O(1) average lookup versus O(n) for
+       scanning a list every time.
+  - Why keep a separate sorted linked list instead of just sorting the
+    dict's values on every browse?
+    -> Browsing happens often and insert/remove happen relatively rarely;
+       keeping the list pre-sorted means browsing is always instant, at
+       the one-time cost of an O(n) insert when a product is added.
+  - Why sets for tags instead of a list of strings?
+    -> Tag search needs exactly the membership and set-algebra operations
+       Python's set gives for free — issubset() for "match all", & for
+       "match any", and |= for unioning every tag across the catalogue.

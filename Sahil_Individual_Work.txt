@@ -1,0 +1,116 @@
+SAHIL — INDIVIDUAL CONTRIBUTION
+E-COMMERCE INVENTORY & ORDER PROCESSING ENGINE (PROJECT 2, ITE 5231)
+===========================================================================
+
+ROLE: Shipping & Order Fulfilment
+FILES OWNED: shipping.py, orders.py
+TESTS OWNED: tests/test_shipping.py (3 cases), tests/test_orders.py (3 cases) — 6 total
+DATA STRUCTURES OWNED: Queue (FIFO, via collections.deque), List (order_history)
+DESIGN PATTERNS OWNED: Facade
+PIPELINE STAGE: Shipping cost & order fulfilment (stage 4 of catalogue -> cart -> checkout -> fulfilment)
+
+---------------------------------------------------------------------------
+1. WHAT THIS SLICE OF THE PROJECT DOES
+---------------------------------------------------------------------------
+This is the part of the system that takes over once checkout has a final
+total: it works out shipping cost behind one simple call, then owns the
+order queue that makes sure orders are fulfilled in the exact order they
+were placed.
+
+---------------------------------------------------------------------------
+2. shipping.py — FACADE PATTERN
+---------------------------------------------------------------------------
+  - ShippingFacade exposes ONE public method: calculate_shipping(cart, zone).
+    The caller never has to know or call any of the three steps below —
+    that single method is the entire "front door" onto shipping.
+  - Internally it hides three separate steps behind that single call:
+      1. _calculate_weight(cart): walks cart.to_list() and sums
+         product.get_weight() * quantity for every item. Digital and
+         Subscription products contribute 0 automatically, since
+         get_weight() defaults to 0.0 on the base Product class — no
+         special-casing needed here.
+      2. _lookup_zone_multiplier(zone): looks up "domestic" (1.0x) vs
+         "international" (1.5x) in a dict, defaulting to 1.0x for any
+         unrecognized zone string instead of raising an error.
+      3. _carrier_quote(weight, multiplier): a STUB standing in for what
+         would be a real carrier API call — computes
+         (base_rate + weight * rate_per_kg) * multiplier, where
+         base_rate = $5.00 and rate_per_kg = $2.00.
+  - calculate_shipping(cart, zone) just chains the three private steps in
+    order and returns the final number. main.py (menu option 13, checkout)
+    calls this one method and gets back a shipping cost — it never sees
+    weight math, zone lookups, or the carrier stub directly.
+  - This is the Facade pattern: a simple, single-method front door hiding a
+    multi-step subsystem, so the calling code (checkout) stays clean.
+
+---------------------------------------------------------------------------
+3. orders.py — FIFO QUEUE
+---------------------------------------------------------------------------
+  - Order class: order_id (auto-incrementing class counter, so every order
+    gets a unique sequential ID with no manual bookkeeping), items (a
+    List[str] of SKUs), final_total, and a status string that starts at
+    "Pending" and flips to "Fulfilled" via mark_fulfilled().
+  - OrderProcessor is the piece that owns fulfilment order:
+      * order_queue: a collections.deque used STRICTLY FIFO — append() on
+        submit always adds to the right, popleft() on processing always
+        removes from the left. This is the project's "Queue<Order>"
+        requirement, and a deque is the right structure because Python
+        list.pop(0) is O(n) while deque.popleft() is O(1).
+      * order_history: a plain List[Order] — a second, explicit use of a
+        List — that every order lands in once it's been fully processed,
+        so past orders stay inspectable after they leave the queue.
+      * submit_order(order): pushes the order onto the right end of
+        order_queue and prints a confirmation line.
+      * process_orders(): drains the ENTIRE queue front-to-back in one
+        pass — while the queue isn't empty, popleft() the oldest order,
+        mark it Fulfilled, and append it to order_history. Because it's
+        popleft() every time, the first order submitted is always the
+        first one fulfilled, no matter how many orders build up in the
+        queue.
+
+---------------------------------------------------------------------------
+4. TEST COVERAGE (tests/test_shipping.py + tests/test_orders.py)
+---------------------------------------------------------------------------
+test_shipping.py (3 cases):
+  - test_domestic_shipping_cost
+  - test_international_shipping_costs_more
+  - test_digital_products_add_no_weight
+
+test_orders.py (3 cases):
+  - test_orders_processed_in_fifo_order
+  - test_process_orders_marks_fulfilled
+  - test_queue_empty_after_processing
+
+Run just this slice:
+  python3 -m unittest tests.test_shipping tests.test_orders -v
+
+---------------------------------------------------------------------------
+5. HOW THIS CONNECTS TO THE REST OF THE SYSTEM
+---------------------------------------------------------------------------
+  - At checkout (menu option 13), main.py takes the final total that
+    Dhruv's discount decorators produced, then calls
+    ShippingFacade.calculate_shipping(cart, zone) to add shipping on top.
+  - On confirmation, main.py builds an Order from the cart contents and
+    final total, then hands it to OrderProcessor.submit_order() — pushing
+    it onto the FIFO queue.
+  - Menu option 14 (Process queue) calls OrderProcessor.process_orders(),
+    draining every pending order into order_history.
+  - Weight comes from Parth's Product hierarchy (get_weight(), overridden
+    only on PhysicalProduct), and cart contents come from Dhruv's
+    ShoppingCartList.
+
+---------------------------------------------------------------------------
+6. Q&A TALKING POINTS
+---------------------------------------------------------------------------
+  - Why Facade instead of just calling three helper functions from main.py?
+    -> main.py shouldn't need to know shipping involves weight math, a
+       zone table, and a carrier stub at all — one method call hides that
+       whole subsystem and keeps checkout code readable.
+  - Why a deque instead of a plain Python list for the order queue?
+    -> Orders must come out in the exact order they went in (FIFO), and
+       deque.popleft() is O(1) versus list.pop(0)'s O(n), so it's both the
+       correct semantics and the correct performance.
+  - Why default unknown shipping zones to 1.0x instead of raising an error?
+    -> Keeps checkout from crashing on a typo'd zone string; a sensible
+       default (domestic-rate) is safer for a console demo than a hard
+       failure.
